@@ -1,0 +1,8 @@
+vpc_cidr_block = "10.0.0.0/16"
+subnet_cidr_block = "10.0.10.0/24"
+avail_zone = "eu-north-1a"
+env_prefix = "dev"
+my_ip = "X.X.X.X/32"
+instance_type = "t3.micro"
+public_key_location = "/Users/path/.ssh/id_xxx.pub"
+image_name = "ami-XXXXXXXXXXX"
