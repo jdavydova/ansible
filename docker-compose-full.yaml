@@ -3,10 +3,10 @@ services:
   java-app:
     image: nanatwn/demo-app:java-maven-2.0
     environment:
-      - DB_USER=user
-      - DB_PWD=pass
+      - DB_USER=${DB_USER}
+      - DB_PWD=${DB_PWD}
       - DB_SERVER=mysql
-      - DB_NAME=my-app-db
+      - DB_NAME=${DB_NAME}
     ports:
     - 8080:8080
     container_name: my-java-app
@@ -15,10 +15,10 @@ services:
     ports:
       - 3306:3306
     environment:
-      - MYSQL_ROOT_PASSWORD=my-secret-pw
-      - MYSQL_DATABASE=my-app-db
-      - MYSQL_USER=user
-      - MYSQL_PASSWORD=pass
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PWD}
     volumes:
     - mysql-data:/var/lib/mysql
     container_name: mysql
