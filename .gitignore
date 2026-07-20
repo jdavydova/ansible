@@ -1,2 +1,3 @@
-project-vars
 .idea/
+project-vars
+hosts.local
