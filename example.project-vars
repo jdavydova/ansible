@@ -1,0 +1,6 @@
+version: 1.0.0
+location: CHANGE_LOCATION
+linux_name: julia
+user_home_dir: /home/{{linux_name}}
+
+docker_password: CHANGE_PASSWORD
