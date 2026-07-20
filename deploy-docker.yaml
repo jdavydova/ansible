@@ -21,9 +21,10 @@
       shell: uname -m
       register: remote_arch
     - name: Install docker-compose
-      get_url: https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{ remote_arch.stdout }}
-      dest: ~/.docker/cli-plugins/docker-compose
-      mode: +x
+      get_url:
+        url: https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{ remote_arch.stdout }}
+        dest: ~/.docker/cli-plugins/docker-compose
+        mode: +x
 
 - name: Start Docker
   hosts: docker_server
@@ -48,11 +49,20 @@
 
 - name: Start docker container
   hosts: docker_server
+  vars_files:
   tasks:
     - name: Copy docker compose
       copy:
-        src:
-        dest:
+        src: /Users/juliadavydova/nana-projects/bootcamp-java-mysql-project
+        dest: /home/ec2-user/docker-compose.yaml
+    - name: Docker login
+      docker_login:
+        user_name: juliadavydova
+        password: "{{password}}"
+    - name: Start container from compose
+      community.docker.docker_compose_v2:
+        project_src: /home/ec2-user
+
 
 
 
