@@ -9,6 +9,7 @@ variable env_prefix {}
 variable my_ip {}
 variable instance_type {}
 variable public_key_location {}
+variable "ssh_key_private" {}
 
 resource "aws_vpc" "myapp-vpc" {
   cidr_block = var.vpc_cidr_block
@@ -115,5 +116,19 @@ resource "aws_instance" "myapp-server" {
 
   tags = {
     Name: "${var.env_prefix}-server"
+  }
+
+  provisioner "local-exec"{
+    working_dir = "/Users/juliadavydova/nana-projects/ansible"
+    command = <<EOT
+git switch deploy-to-ec2
+git pull origin deploy-to-ec2
+ansible-playbook \
+  -i ${self.public_ip}, \
+  --private-key ${var.ssh_key_private} \
+  --user ec2-user \
+  deploy-docker-new-user.yaml \
+  --extra-vars "@project-vars"
+EOT
   }
 }
