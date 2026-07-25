@@ -1,6 +1,6 @@
 ---
 - name: Install Docker
-  hosts: docker_server
+  hosts: all
   become: yes
   tasks:
     - name: Install Docker
@@ -8,64 +8,53 @@
         name: docker
         update_cache: yes
         state: present
+    - name: Start docker daemon
+      systemd:
+        name: docker
+        state: started
+
+- name: Create new linux user
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create new linux user
+      user:
+        name: julia
+        groups: "{{user_groups}}"
 
 - name: Install Docker-compose
-  hosts: docker_server
+  hosts: all
   tasks:
     - name: Create docker-compose directory
       file:
         path: ~/.docker/cli-plugins
         state: directory
-
-    - name: get arhitecture of remote machine
+    - name: Get architecture of remote machine
       shell: uname -m
       register: remote_arch
-
     - name: Install docker-compose
       get_url:
-        url: https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{ remote_arch.stdout }}
+        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{lookup('pipe', 'uname -m')}}"
         dest: ~/.docker/cli-plugins/docker-compose
         mode: +x
 
-- name: Start Docker
-  hosts: docker_server
+- name: Start docker containers
+  hosts: all
   become: yes
-  tasks:
-    - name: Ensure docker is running
-      systemd:
-        name: docker
-        state: started
-
-- name: Add ec2-user to docker group
-  hosts: docker_server
-  become: yes
-  tasks:
-    - name: Add ec2-user to docker group
-      user:
-        name: ec2-user
-        groups: docker
-        append: true
-    - name: Reconnect to server session
-      meta: reset_connection
-
-- name: Start docker container
-  hosts: docker_server
+  become_user: julia
   vars_files:
+    - project-vars
   tasks:
     - name: Copy docker compose
       copy:
         src: /Users/juliadavydova/nana-projects/bootcamp-java-mysql-project/docker-compose-full.yaml
-        dest: /home/ec2-user/docker-compose.yaml
+        dest: /home/julia/docker-compose.yaml
 
     - name: Docker login
       docker_login:
         username: "{{docker_username}}"
         password: "{{docker_password}}"
 
-    - name: Start container from compose
+    - name: Start containers from compose
       community.docker.docker_compose_v2:
-        project_src: /home/ec2-user
-
-
-
-
+        project_src: /home/julia

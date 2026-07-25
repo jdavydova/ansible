@@ -1,3 +1,7 @@
 .idea/
 project-vars
 hosts.local
+.terraform/
+*.tfstate.backup
+.terraform.lock.hcl
+crash.log
