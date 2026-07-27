@@ -16,6 +16,8 @@
 - name: Create new linux user
   hosts: all
   become: yes
+  vars_files:
+    - project-vars
   tasks:
     - name: Create new linux user
       user:
@@ -24,19 +26,27 @@
 
 - name: Install Docker-compose
   hosts: all
+  become: yes
   tasks:
     - name: Create docker-compose directory
       file:
-        path: ~/.docker/cli-plugins
+        path: /home/julia/.docker/cli-plugins
         state: directory
+        owner: julia
+        group: julia
+        mode: "0755"
+
     - name: Get architecture of remote machine
       shell: uname -m
       register: remote_arch
+
     - name: Install docker-compose
       get_url:
-        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{lookup('pipe', 'uname -m')}}"
-        dest: ~/.docker/cli-plugins/docker-compose
-        mode: +x
+        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{remote_arch.stdout}}"
+        dest: /home/julia/.docker/cli-plugins/docker-compose
+        owner: julia
+        group: julia
+        mode: "0755"
 
 - name: Start docker containers
   hosts: all
