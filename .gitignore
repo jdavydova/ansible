@@ -1,8 +1,35 @@
-.idea/
-project-vars
-hosts
-hosts.local
+# Terraform working directory
 .terraform/
-*.tfstate.backup
 .terraform.lock.hcl
+
+# Terraform state
+*.tfstate
+*.tfstate.*
 crash.log
+crash.*.log
+
+# Terraform variable files
+*.tfvars
+*.tfvars.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Sensitive Ansible variables
+project-vars
+vault-password*
+.vault_pass*
+
+# Private keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+github_ed25519
+aws_ec2_ed25519
+
+# macOS
+.DS_Store
