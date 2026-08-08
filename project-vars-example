@@ -1,0 +1,8 @@
+version: 1.0.0
+location: /Users/juliadavydova/nana-projects/ansible/nodejs-app
+linux_name: julia
+user_home_dir: /home/{{linux_name}}
+user_groups: adm,docker
+
+docker_username: "USERNAME"
+docker_password: "PASSWORD"
