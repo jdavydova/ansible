@@ -1,0 +1,14 @@
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - eu-north-1
+
+filters:
+  instance-state-name: running
+  tag:Role: app-server
+
+hostnames:
+  - dns-name
+
+compose:
+  ansible_user: "'ec2-user'"

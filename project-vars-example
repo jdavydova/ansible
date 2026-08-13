@@ -4,5 +4,5 @@ linux_name: julia
 user_home_dir: /home/{{linux_name}}
 user_groups: adm,docker
 
-docker_username: "USERNAME"
-docker_password: "PASSWORD"
+docker_username: YOUR_DOCKER_USERNAME
+docker_password: YOUR_DOCKER_TOKEN
