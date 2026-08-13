@@ -1,5 +1,6 @@
 .idea/
 project-vars
+terraform.tfvars
 hosts
 hosts.local
 .terraform/
