@@ -3,6 +3,8 @@ project-vars
 terraform.tfvars
 hosts
 hosts.local
+terraform/terraform.tfvars
+terraform/.terraform/
 .terraform/
 *.tfstate.backup
 .terraform.lock.hcl
