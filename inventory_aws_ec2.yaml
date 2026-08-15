@@ -5,10 +5,11 @@ regions:
 
 filters:
   instance-state-name: running
-  tag:Role: app-server
+  tag:Name: "dev*"
 
 hostnames:
-  - dns-name
+  - tag:Name
 
 compose:
+  ansible_host: public_ip_address
   ansible_user: "'ec2-user'"
