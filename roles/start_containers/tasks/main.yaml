@@ -5,6 +5,7 @@
 
 - name: Docker login
   docker_login:
+    registry_url: "{{ docker_registry }}"
     username: "{{docker_username}}"
     password: "{{docker_password}}"
 
