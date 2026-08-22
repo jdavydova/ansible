@@ -5,4 +5,4 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-rootProject.name = 'build-tools-exercises'
+rootProject.name = 'java-app'
