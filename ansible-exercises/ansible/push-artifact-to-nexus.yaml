@@ -1,0 +1,49 @@
+---
+- name: Push Java artifact to Nexus
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    nexus_url: "http://localhost:8081"
+    path_repository: "maven-snapshots"
+
+    group_id: "com.example"
+    artifact_id: "java-app"
+    version: "1.0-SNAPSHOT"
+
+    nexus_user: "{{ lookup('env', 'NEXUS_USER') }}"
+    nexus_password: "{{ lookup('env', 'NEXUS_PASSWORD') }}"
+
+    group_path: "{{ group_id | replace('.', '/') }}"
+    artifact_name: "{{ jar_file | basename }}"
+
+  tasks:
+    - name: Check that jar file exists
+      ansible.builtin.stat:
+        path: "{{ jar_file }}"
+      register: jar_file_info
+
+    - name: Fail if jar file does not exist
+      ansible.builtin.fail:
+        msg: "Jar file {{ jar_file }} does not exist"
+      when: not jar_file_info.stat.exists
+
+    - name: Push jar to Nexus
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --user
+          - "{{ nexus_user }}:{{ nexus_password }}"
+          - --upload-file
+          - "{{ jar_file }}"
+          - "{{ nexus_url }}/repository/{{ path_repository }}/{{ group_path }}/{{ artifact_id }}/{{ version }}/{{ artifact_name }}"
+      register: response
+      no_log: true
+
+    - name: Print response
+      debug:
+        var: response
