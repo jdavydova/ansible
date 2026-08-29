@@ -150,9 +150,8 @@ http://localhost:8081/repository/maven-snapshots/com/example/java-app/1.0-SNAPSH
       no_log: true
 
     - name: Print response
-      ansible.builtin.debug:
-        msg: "Artifact {{ artifact_name }} successfully uploaded to Nexus"
-      when: response.rc == 0
+      debug:
+        var: response
 ```
 
 ## Run the Playbook
