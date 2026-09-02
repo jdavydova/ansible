@@ -1,0 +1,116 @@
+---
+- name: Create Jenkins EC2
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Create EC2 instance
+      amazon.aws.ec2_instance:
+        name: "jenkins-server-2"
+        key_name: "ansible-jenkins"
+        instance_type: "t3.micro"
+        image_id: "ami-0aba19e56f3eaec05"
+        region: "eu-north-1"
+        vpc_subnet_id: "subnet-0040a19a99d2c01ed"
+        wait: true
+      register: ec2
+
+    - name: Show EC2 result
+      ansible.builtin.debug:
+        var: ec2
+
+    - name: Add Jenkins server to inventory
+      ansible.builtin.add_host:
+        name: "{{ ec2.instances[0].public_ip_address }}"
+        groups: jenkins_server
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
+
+    - name: Wait for SSH
+      ansible.builtin.wait_for:
+        host: "{{ ec2.instances[0].public_ip_address }}"
+        port: 22
+        timeout: 300
+
+- name: Configure Jenkins server
+  hosts: jenkins_server
+  become: true
+
+  tasks:
+    - name: Test connection
+      ansible.builtin.ping:
+
+    - name: Install Java 21
+      ansible.builtin.apt:
+        name: openjdk-21-jre
+        state: present
+        update_cache: true
+
+    - name: Add Jenkins repository
+      ansible.builtin.deb822_repository:
+        name: jenkins
+        types:
+          - deb
+        uris:
+          - https://pkg.jenkins.io/debian-stable
+        suites:
+          - binary/
+        signed_by: /usr/share/keyrings/jenkins-keyring.asc
+        state: present
+
+    - name: Install Jenkins
+      ansible.builtin.apt:
+        name: jenkins
+        state: present
+        update_cache: true
+
+    - name: Start and enable Jenkins
+      ansible.builtin.service:
+        name: jenkins
+        state: started
+        enabled: true
+
+    - name: Install Node.js
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+
+    - name: Install npm
+      ansible.builtin.apt:
+        name: npm
+        state: present
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Start and enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add Jenkins user to Docker group
+      ansible.builtin.user:
+        name: jenkins
+        groups: docker
+        append: true
+
+    - name: Add Jenkins user to Docker group
+      ansible.builtin.user:
+        name: jenkins
+        groups: docker
+        append: true
+
+    - name: Add Jenkins user to Docker group
+      ansible.builtin.user:
+        name: jenkins
+        groups: docker
+        append: true
+
+    - name: Restart Jenkins
+      ansible.builtin.service:
+        name: jenkins
+        state: restarted
