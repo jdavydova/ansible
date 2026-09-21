@@ -7,7 +7,7 @@
   tasks:
     - name: Create EC2 instance
       amazon.aws.ec2_instance:
-        name: "jenkins-server-2"
+        name: "jenkins-server"
         key_name: "ansible-jenkins"
         instance_type: "t3.micro"
         image_id: "ami-0aba19e56f3eaec05"
