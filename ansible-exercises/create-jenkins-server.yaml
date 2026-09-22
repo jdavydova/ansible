@@ -5,6 +5,24 @@
   gather_facts: false
 
   tasks:
+    - name: Create security group for Jenkins
+      amazon.aws.ec2_security_group:
+        name: jenkins-sg
+        description: Security group for Jenkins
+        region: eu-north-1
+        vpc_id: vpc-054cf680083727d58
+        rules:
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: 0.0.0.0/0
+
+          - proto: tcp
+            ports:
+              - 8080
+            cidr_ip: 0.0.0.0/0
+      register: jenkins_sg
+
     - name: Create EC2 instance
       amazon.aws.ec2_instance:
         name: "jenkins-server"
@@ -13,12 +31,18 @@
         image_id: "ami-0aba19e56f3eaec05"
         region: "eu-north-1"
         vpc_subnet_id: "subnet-0040a19a99d2c01ed"
+
+        security_group: "{{ jenkins_sg.group_id }}"
+
+        network:
+          assign_public_ip: true
+
         wait: true
       register: ec2
 
     - name: Show EC2 result
       ansible.builtin.debug:
-        var: ec2
+        msg: "{{ ec2.instances[0].public_ip_address }}"
 
     - name: Add Jenkins server to inventory
       ansible.builtin.add_host:
@@ -47,6 +71,12 @@
         state: present
         update_cache: true
 
+    - name: Download Jenkins repository key
+      ansible.builtin.get_url:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+        dest: /usr/share/keyrings/jenkins-keyring.asc
+        mode: "0644"
+
     - name: Add Jenkins repository
       ansible.builtin.deb822_repository:
         name: jenkins
@@ -71,16 +101,6 @@
         state: started
         enabled: true
 
-    - name: Install Node.js
-      ansible.builtin.apt:
-        name: nodejs
-        state: present
-
-    - name: Install npm
-      ansible.builtin.apt:
-        name: npm
-        state: present
-
     - name: Install Docker
       ansible.builtin.apt:
         name: docker.io
@@ -98,19 +118,19 @@
         groups: docker
         append: true
 
-    - name: Add Jenkins user to Docker group
-      ansible.builtin.user:
-        name: jenkins
-        groups: docker
-        append: true
-
-    - name: Add Jenkins user to Docker group
-      ansible.builtin.user:
-        name: jenkins
-        groups: docker
-        append: true
-
     - name: Restart Jenkins
       ansible.builtin.service:
         name: jenkins
         state: restarted
+
+    - name: Get Jenkins initial admin password
+      ansible.builtin.slurp:
+        src: /var/lib/jenkins/secrets/initialAdminPassword
+      register: jenkins_password
+
+    - name: Show Jenkins login information
+      ansible.builtin.debug:
+        msg:
+          - "Jenkins URL: http://{{ inventory_hostname }}:8080"
+          - "Password: {{ jenkins_password.content | b64decode }}"
+
