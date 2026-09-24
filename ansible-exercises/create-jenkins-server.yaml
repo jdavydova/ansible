@@ -60,17 +60,77 @@
 - name: Configure Jenkins server
   hosts: jenkins_server
   become: true
-  gather_facts: true
 
   tasks:
-    - name: Install Jenkins on Ubuntu
-      ansible.builtin.include_tasks: tasks/ubuntu.yaml
-      when: ansible_facts["os_family"] == "Debian"
+    - name: Test connection
+      ansible.builtin.ping:
 
-    - name: Install Jenkins on RedHat
-      ansible.builtin.include_tasks: tasks/redhat.yaml
-      when: ansible_facts["os_family"] == "RedHat"
+    - name: Install Java 21
+      ansible.builtin.apt:
+        name: openjdk-21-jre
+        state: present
+        update_cache: true
 
-    - name: Show detected OS family
+    - name: Download Jenkins repository key
+      ansible.builtin.get_url:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+        dest: /usr/share/keyrings/jenkins-keyring.asc
+        mode: "0644"
+
+    - name: Add Jenkins repository
+      ansible.builtin.deb822_repository:
+        name: jenkins
+        types:
+          - deb
+        uris:
+          - https://pkg.jenkins.io/debian-stable
+        suites:
+          - binary/
+        signed_by: /usr/share/keyrings/jenkins-keyring.asc
+        state: present
+
+    - name: Install Jenkins
+      ansible.builtin.apt:
+        name: jenkins
+        state: present
+        update_cache: true
+
+    - name: Start and enable Jenkins
+      ansible.builtin.service:
+        name: jenkins
+        state: started
+        enabled: true
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Start and enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add Jenkins user to Docker group
+      ansible.builtin.user:
+        name: jenkins
+        groups: docker
+        append: true
+
+    - name: Restart Jenkins
+      ansible.builtin.service:
+        name: jenkins
+        state: restarted
+
+    - name: Get Jenkins initial admin password
+      ansible.builtin.slurp:
+        src: /var/lib/jenkins/secrets/initialAdminPassword
+      register: jenkins_password
+
+    - name: Show Jenkins login information
       ansible.builtin.debug:
-        msg: "OS family: {{ ansible_facts['os_family'] }}"
+        msg:
+          - "Jenkins URL: http://{{ inventory_hostname }}:8080"
+          - "Password: {{ jenkins_password.content | b64decode }}"
+
