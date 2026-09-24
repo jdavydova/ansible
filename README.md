@@ -1,5 +1,8 @@
 # Ansible Exercise 4: Install Jenkins on Multiple Linux OS Families
 
+EXERCISE 4: Install Jenkins on Ubuntu
+Your company has infrastructure on multiple platforms. So in addition to creating the Jenkins instance dynamically on an EC2 server, you want to support creating it on an Ubuntu server too. Your task is to re-write your playbook (using include_tasks or conditionals) to support both flavors of the OS.
+
 ## Overview
 
 This exercise extends the Jenkins provisioning playbook so that Jenkins
