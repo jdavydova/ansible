@@ -1,433 +1,303 @@
-# Ansible Exercise 4: Install Jenkins on Multiple Linux OS Families
 
-EXERCISE 4: Install Jenkins on Ubuntu
-Your company has infrastructure on multiple platforms. So in addition to creating the Jenkins instance dynamically on an EC2 server, you want to support creating it on an Ubuntu server too. Your task is to re-write your playbook (using include_tasks or conditionals) to support both flavors of the OS.
+# Ansible Exercise 5: Run Jenkins as a Docker Container
+
+EXERCISE 5: Install Jenkins as a Docker Container
+In addition to having different OS flavors as an option, your team also wants to be able to run Jenkins as a docker container. So you write another playbook that starts Jenkins as a Docker container with volumes for Jenkins home and Docker itself, because you want to be able to execute Docker commands inside Jenkins.
+
+Here is a reference of a full docker command for starting Jenkins container, which you should map to Ansible playbook:
+
+docker run --name jenkins -p 8080:8080 -p 50000:50000 -d \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-v /usr/local/bin/docker:/usr/bin/docker \
+-v jenkins_home:/var/jenkins_home \
+jenkins/jenkins:lts
+
+
+Your team is happy, because they can now use Ansible to quickly spin up a Jenkins server for different needs.
+
 
 ## Overview
 
-This exercise extends the Jenkins provisioning playbook so that Jenkins
-can be configured on different Linux OS families.
+This exercise extends the previous Ansible automation by running Jenkins
+inside a Docker container instead of running Jenkins directly as a
+systemd service on the EC2 host.
 
-The playbook:
+The playbook: - creates an EC2 instance for Jenkins; - detects the Linux
+OS family; - installs and starts Docker; - creates a persistent Docker
+volume for Jenkins; - starts Jenkins from the `jenkins/jenkins:lts`
+image; - exposes Jenkins on port `8080`; - exposes the Jenkins
+inbound-agent port `50000`; - mounts the host Docker socket and Docker
+CLI into the Jenkins container; - stores Jenkins data in a persistent
+named volume.
 
--   creates an AWS Security Group for Jenkins;
--   creates an EC2 instance;
--   assigns a public IP address;
--   dynamically adds the new instance to the Ansible inventory;
--   waits until SSH is available;
--   gathers facts from the remote server;
--   detects the operating system family;
--   includes the appropriate task file for Debian/Ubuntu or RedHat-based
-    systems;
--   installs Java 21, Jenkins, Node.js, Docker, and related
-    dependencies;
--   starts and enables Docker and Jenkins.
+## Architecture
 
-The main idea of this exercise is to avoid putting OS-specific
-package-management logic into one large playbook. Instead, Ansible
-detects the OS family and loads the correct task file with
-`include_tasks`.
+``` text
+AWS EC2
+|
++-- Docker daemon
+|   +-- /var/run/docker.sock
+|
++-- Jenkins container
+    +-- Jenkins Web UI :8080
+    +-- Jenkins agent port :50000
+    +-- Docker CLI
+    +-- /var/jenkins_home
+        +-- jenkins_home volume
+```
 
-------------------------------------------------------------------------
+Jenkins runs inside the container, while Docker itself runs on the EC2
+host.
 
 ## Project Structure
 
 ``` text
 ansible-exercises/
-├── create-jenkins-server.yaml
-└── tasks/
-    ├── ubuntu.yaml
-    └── redhat.yaml
+|-- create-jenkins-server.yaml
++-- tasks/
+    |-- ubuntu.yaml
+    |-- redhat.yaml
+    +-- jenkins-docker.yaml
 ```
 
-The main playbook contains the common infrastructure and OS-detection
-logic.
+## Jenkins Docker Tasks
 
-The files under `tasks/` contain OS-specific installation steps.
-
-------------------------------------------------------------------------
-
-## Main Playbook
-
-`create-jenkins-server.yaml`
+`tasks/jenkins-docker.yaml`
 
 ``` yaml
 ---
-- name: Create Jenkins EC2
-  hosts: localhost
-  connection: local
-  gather_facts: false
+- name: Create Jenkins home volume
+  community.docker.docker_volume:
+    name: jenkins_home
+    state: present
 
-  tasks:
-    - name: Create security group for Jenkins
-      amazon.aws.ec2_security_group:
-        name: jenkins-sg
-        description: Security group for Jenkins
-        region: eu-north-1
-        vpc_id: vpc-054cf680083727d58
-        rules:
-          - proto: tcp
-            ports:
-              - 22
-            cidr_ip: 0.0.0.0/0
-
-          - proto: tcp
-            ports:
-              - 8080
-            cidr_ip: 0.0.0.0/0
-      register: jenkins_sg
-
-    - name: Create EC2 instance
-      amazon.aws.ec2_instance:
-        name: "jenkins-server"
-        key_name: "ansible-jenkins"
-        instance_type: "t3.micro"
-        image_id: "ami-0aba19e56f3eaec05"
-        region: "eu-north-1"
-        vpc_subnet_id: "subnet-0040a19a99d2c01ed"
-        security_group: "{{ jenkins_sg.group_id }}"
-        network:
-          assign_public_ip: true
-        wait: true
-      register: ec2
-
-    - name: Show EC2 result
-      ansible.builtin.debug:
-        msg: "{{ ec2.instances[0].public_ip_address }}"
-
-    - name: Add Jenkins server to inventory
-      ansible.builtin.add_host:
-        name: "{{ ec2.instances[0].public_ip_address }}"
-        groups: jenkins_server
-        ansible_user: ubuntu
-        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
-
-    - name: Wait for SSH
-      ansible.builtin.wait_for:
-        host: "{{ ec2.instances[0].public_ip_address }}"
-        port: 22
-        timeout: 300
-
-- name: Configure Jenkins server
-  hosts: jenkins_server
-  become: true
-  gather_facts: true
-
-  tasks:
-    - name: Install Jenkins on Ubuntu
-      ansible.builtin.include_tasks: tasks/ubuntu.yaml
-      when: ansible_facts["os_family"] == "Debian"
-
-    - name: Install Jenkins on RedHat
-      ansible.builtin.include_tasks: tasks/redhat.yaml
-      when: ansible_facts["os_family"] == "RedHat"
-
-    - name: Show detected OS family
-      ansible.builtin.debug:
-        msg: "OS family: {{ ansible_facts['os_family'] }}"
+- name: Start Jenkins container
+  community.docker.docker_container:
+    name: jenkins
+    image: jenkins/jenkins:lts
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/usr/bin/docker:/usr/bin/docker"
+      - "jenkins_home:/var/jenkins_home"
 ```
 
-------------------------------------------------------------------------
+## Docker Port Mapping
 
-## OS Detection with Ansible Facts
+Docker uses `HOST_PORT:CONTAINER_PORT`.
 
-The second play enables:
+``` text
+EC2 :8080  ---> Jenkins container :8080
+EC2 :50000 ---> Jenkins container :50000
+```
+
+Port `8080` provides access to the Jenkins Web UI. Port `50000` is
+traditionally used for Jenkins inbound agents.
+
+## Persistent Jenkins Data
+
+The playbook creates the named volume `jenkins_home` and mounts it at:
+
+``` text
+/var/jenkins_home
+```
+
+This directory contains Jenkins configuration, jobs, plugins, users,
+secrets, and other Jenkins state. The container can therefore be
+replaced without automatically losing Jenkins home data.
+
+Check volumes with:
+
+``` bash
+docker volume ls
+```
+
+## Docker Socket and Docker CLI
+
+The mount:
 
 ``` yaml
-gather_facts: true
+- "/var/run/docker.sock:/var/run/docker.sock"
 ```
 
-Before running the tasks, Ansible collects information about the remote
-machine, including its operating system.
+allows processes inside Jenkins to communicate with the Docker daemon on
+the EC2 host.
+
+``` text
+Docker CLI
+    |
+    v
+/var/run/docker.sock
+    |
+    v
+Host Docker daemon
+```
+
+The Docker CLI is also mounted:
+
+``` yaml
+- "/usr/bin/docker:/usr/bin/docker"
+```
+
+Check the Docker binary path on the host with:
+
+``` bash
+which docker
+```
+
+This allows Jenkins jobs to issue Docker commands while using the host
+Docker daemon.
+
+> **Security note:** access to `/var/run/docker.sock` is highly
+> privileged. Only trusted Jenkins jobs and users should receive this
+> access.
+
+## Port 8080 Conflict
+
+During the exercise, the container initially failed with:
+
+``` text
+failed to bind host port 0.0.0.0:8080/tcp:
+address already in use
+```
+
+The reason was that Jenkins was already running directly on the EC2 host
+as a systemd service and was using port `8080`.
+
+``` text
+EC2
+|-- Jenkins systemd service -> :8080
+|
++-- Jenkins Docker container -> wants :8080
+                               X conflict
+```
+
+Check which process is listening on port `8080`:
+
+``` bash
+sudo ss -ltnp | grep :8080
+```
+
+The options mean:
+
+``` text
+-l  listening sockets
+-t  TCP sockets
+-n  numeric ports and addresses
+-p  process information
+```
+
+The pipe (`|`) passes the output to `grep`, which keeps only lines
+containing `:8080`.
+
+## Stop the Host Jenkins Service
+
+For Exercise 5, Jenkins should run in Docker rather than simultaneously
+as a host service.
+
+Stop it now:
+
+``` bash
+sudo systemctl stop jenkins
+```
+
+Prevent automatic startup after reboot:
+
+``` bash
+sudo systemctl disable jenkins
+```
+
+`stop` stops the service now, while `disable` prevents automatic startup
+at boot.
+
+## Check the Jenkins Container
+
+Show running containers:
+
+``` bash
+docker ps
+```
+
+Show all containers:
+
+``` bash
+docker ps -a
+```
+
+View Jenkins logs:
+
+``` bash
+docker logs jenkins
+```
+
+Follow logs:
+
+``` bash
+docker logs -f jenkins
+```
+
+## Unlock Jenkins
+
+For the official Jenkins Docker image, Jenkins home is:
+
+``` text
+/var/jenkins_home
+```
+
+Get the initial administrator password:
+
+``` bash
+sudo docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+`docker exec` runs a command inside an already running container. Here,
+`cat` prints the password file from the Jenkins container.
+
+## Verify Docker Access from Jenkins
+
+Check whether the Docker CLI is available:
+
+``` bash
+docker exec jenkins docker --version
+```
+
+Test access to the host Docker daemon:
+
+``` bash
+docker exec jenkins docker ps
+```
+
+If successful:
+
+``` text
+Jenkins container
+      |
+      | Docker CLI
+      v
+/var/run/docker.sock
+      |
+      v
+Host Docker daemon
+```
+
+## Required Ansible Collection
+
+Install the Docker collection on the Ansible control machine:
+
+``` bash
+ansible-galaxy collection install community.docker
+```
 
 The playbook uses:
 
-``` yaml
-ansible_facts["os_family"]
-```
-
-For Ubuntu, the OS family is normally:
-
 ``` text
-Debian
+community.docker.docker_volume
+community.docker.docker_container
 ```
-
-For RedHat-family systems, it is:
-
-``` text
-RedHat
-```
-
-The conditions therefore select the appropriate task file:
-
-``` yaml
-- name: Install Jenkins on Ubuntu
-  ansible.builtin.include_tasks: tasks/ubuntu.yaml
-  when: ansible_facts["os_family"] == "Debian"
-
-- name: Install Jenkins on RedHat
-  ansible.builtin.include_tasks: tasks/redhat.yaml
-  when: ansible_facts["os_family"] == "RedHat"
-```
-
-Conceptually:
-
-``` text
-Remote server
-     |
-     v
-Gather Ansible facts
-     |
-     v
-Check os_family
-     |
-     +---- Debian ----> tasks/ubuntu.yaml
-     |
-     +---- RedHat ----> tasks/redhat.yaml
-```
-
-This keeps the main playbook clean and separates
-package-manager-specific tasks.
-
-------------------------------------------------------------------------
-
-## Ubuntu Tasks
-
-`tasks/ubuntu.yaml`
-
-``` yaml
----
-- name: Install Java 21
-  ansible.builtin.apt:
-    name: openjdk-21-jre
-    state: present
-    update_cache: true
-
-- name: Set Java 21 as default
-  ansible.builtin.command:
-    cmd: update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
-
-- name: Download Jenkins repository key
-  ansible.builtin.get_url:
-    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
-    dest: /usr/share/keyrings/jenkins-keyring.asc
-    mode: "0644"
-
-- name: Add Jenkins repository
-  ansible.builtin.deb822_repository:
-    name: jenkins
-    types:
-      - deb
-    uris:
-      - https://pkg.jenkins.io/debian-stable
-    suites:
-      - binary/
-    signed_by: /usr/share/keyrings/jenkins-keyring.asc
-    state: present
-
-- name: Install Jenkins
-  ansible.builtin.apt:
-    name: jenkins
-    state: present
-    update_cache: true
-
-- name: Install Node.js and npm
-  ansible.builtin.apt:
-    name:
-      - nodejs
-      - npm
-    state: present
-
-- name: Install Docker
-  ansible.builtin.apt:
-    name: docker.io
-    state: present
-
-- name: Start and enable Docker
-  ansible.builtin.service:
-    name: docker
-    state: started
-    enabled: true
-
-- name: Add Jenkins user to Docker group
-  ansible.builtin.user:
-    name: jenkins
-    groups: docker
-    append: true
-
-- name: Start and enable Jenkins
-  ansible.builtin.service:
-    name: jenkins
-    state: started
-    enabled: true
-```
-
-Ubuntu uses the `apt` package manager.
-
-Java 21 is explicitly selected as the default Java executable because
-Jenkins requires a supported Java version.
-
-------------------------------------------------------------------------
-
-## RedHat Tasks
-
-`tasks/redhat.yaml`
-
-``` yaml
----
-- name: Install Java 21
-  ansible.builtin.dnf:
-    name: java-21-amazon-corretto
-    state: present
-
-- name: Add Jenkins repository
-  ansible.builtin.get_url:
-    url: https://pkg.jenkins.io/redhat-stable/jenkins.repo
-    dest: /etc/yum.repos.d/jenkins.repo
-
-- name: Import Jenkins key
-  ansible.builtin.rpm_key:
-    state: present
-    key: https://pkg.jenkins.io/redhat-stable/jenkins.io-2026.key
-
-- name: Install Jenkins
-  ansible.builtin.dnf:
-    name: jenkins
-    state: present
-
-- name: Install Node.js
-  ansible.builtin.dnf:
-    name: nodejs
-    state: present
-
-- name: Install Docker
-  ansible.builtin.dnf:
-    name: docker
-    state: present
-
-- name: Start and enable Docker
-  ansible.builtin.service:
-    name: docker
-    state: started
-    enabled: true
-
-- name: Add Jenkins user to Docker group
-  ansible.builtin.user:
-    name: jenkins
-    groups: docker
-    append: true
-
-- name: Start and enable Jenkins
-  ansible.builtin.service:
-    name: jenkins
-    state: started
-    enabled: true
-```
-
-This task file uses `dnf` instead of `apt`.
-
-> **Note:** `java-21-amazon-corretto` is Amazon Linux-specific rather
-> than a generic package for every RedHat-family distribution. If this
-> playbook is extended to RHEL, Rocky Linux, AlmaLinux, Fedora, or
-> another RedHat-family system, the Java and Docker package names may
-> need separate distribution-specific handling.
-
-------------------------------------------------------------------------
-
-## Dynamic Inventory
-
-The EC2 instance does not need to exist in a static inventory before the
-playbook starts.
-
-After creating the instance, its public IP is registered in:
-
-``` yaml
-ec2.instances[0].public_ip_address
-```
-
-The `add_host` module then creates an in-memory inventory entry:
-
-``` yaml
-- name: Add Jenkins server to inventory
-  ansible.builtin.add_host:
-    name: "{{ ec2.instances[0].public_ip_address }}"
-    groups: jenkins_server
-```
-
-The second play can therefore use:
-
-``` yaml
-hosts: jenkins_server
-```
-
-The flow is:
-
-``` text
-localhost
-   |
-   v
-Create EC2
-   |
-   v
-Get public IP
-   |
-   v
-add_host
-   |
-   v
-jenkins_server group
-   |
-   v
-Configure remote server
-```
-
-------------------------------------------------------------------------
-
-## Security Group
-
-The playbook creates an AWS Security Group with:
-
-``` text
-22    SSH
-8080  Jenkins Web UI
-```
-
-For a learning environment, the example allows access from:
-
-``` text
-0.0.0.0/0
-```
-
-This means any IPv4 address can attempt to connect to those ports.
-
-> **Security note:** for a real environment, SSH and Jenkins should
-> normally be restricted to trusted IP ranges, VPNs, private networks,
-> load balancers, or other controlled access paths instead of exposing
-> them broadly to the Internet.
-
-------------------------------------------------------------------------
-
-## Requirements
-
-The control machine needs Ansible and the AWS collection:
-
-``` bash
-ansible-galaxy collection install amazon.aws
-```
-
-The Python environment used by Ansible also needs the AWS SDK
-dependencies required by the collection, such as `boto3` and `botocore`.
-
-AWS credentials must be configured so that Ansible can create EC2
-instances and Security Groups.
-
-The SSH private key referenced by the playbook must also exist:
-
-``` text
-~/.ssh/ansible-jenkins.pem
-```
-
-------------------------------------------------------------------------
 
 ## Running the Playbook
 
@@ -437,9 +307,6 @@ Run:
 ansible-playbook create-jenkins-server.yaml
 ```
 
-The playbook first runs locally to create the AWS resources and then
-connects to the new EC2 instance to configure Jenkins.
-
 A successful recap should contain:
 
 ``` text
@@ -447,103 +314,44 @@ failed=0
 unreachable=0
 ```
 
-One OS-specific include will normally be skipped because only the task
-file matching the detected OS family is executed.
-
-For example, on Ubuntu:
-
-``` text
-Install Jenkins on Ubuntu  -> included
-Install Jenkins on RedHat  -> skipped
-```
-
-------------------------------------------------------------------------
-
-## Verify Jenkins
-
-Check the Jenkins service on the remote machine:
-
-``` bash
-sudo systemctl status jenkins
-```
-
-Check Docker:
+## Useful Commands
 
 ``` bash
 sudo systemctl status docker
+docker ps
+docker ps -a
+docker logs jenkins
+docker logs -f jenkins
+docker volume ls
+sudo ss -ltnp | grep :8080
+sudo docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+docker exec jenkins docker --version
+docker exec jenkins docker ps
 ```
-
-Check Java:
-
-``` bash
-java -version
-```
-
-Check Docker:
-
-``` bash
-docker --version
-```
-
-Jenkins should be reachable at:
-
-``` text
-http://PUBLIC_IP:8080
-```
-
-provided that the AWS Security Group and any additional network controls
-allow access.
-
-To inspect Jenkins logs:
-
-``` bash
-sudo journalctl -u jenkins --no-pager -n 100
-```
-
-------------------------------------------------------------------------
-
-## What This Exercise Demonstrates
-
-This exercise introduces several useful Ansible concepts:
-
-  Concept                           Purpose
-  --------------------------------- --------------------------------------------------------
-  `amazon.aws.ec2_security_group`   Creates an AWS Security Group
-  `amazon.aws.ec2_instance`         Creates an EC2 instance
-  `register`                        Stores a module result in a variable
-  `add_host`                        Adds a dynamically created host to in-memory inventory
-  `gather_facts`                    Collects information about the remote OS
-  `ansible_facts["os_family"]`      Identifies the OS family
-  `when`                            Executes tasks conditionally
-  `include_tasks`                   Loads an OS-specific task file
-  `apt`                             Manages Debian/Ubuntu packages
-  `dnf`                             Manages RedHat-family packages
-  `service`                         Starts and enables system services
-  `user`                            Manages users and group membership
-
-------------------------------------------------------------------------
 
 ## Key Takeaway
 
-Instead of duplicating an entire Jenkins provisioning playbook for each
-operating system, the common workflow stays in one main playbook:
+Exercise 4 ran Jenkins directly as a service on the operating system:
 
 ``` text
-Create infrastructure
-        |
-        v
-Connect to server
-        |
-        v
-Gather facts
-        |
-        v
-Detect OS family
-        |
-        +-------- Debian --------> ubuntu.yaml
-        |
-        +-------- RedHat --------> redhat.yaml
+EC2
++-- systemd
+    +-- Jenkins
 ```
 
-This makes the automation easier to read, maintain, and extend with
-additional operating systems later.
+Exercise 5 changes the architecture:
+
+``` text
+EC2
++-- Docker daemon
+    +-- Jenkins container
+        |-- Jenkins home volume
+        |-- Docker CLI
+        +-- Docker socket
+```
+
+Running Jenkins as a container makes the Jenkins runtime reproducible
+and replaceable, while the `jenkins_home` volume keeps Jenkins data
+persistent. The Docker socket allows Jenkins jobs to use the host Docker
+daemon, but it also grants substantial privileges and must be treated as
+a sensitive security boundary.

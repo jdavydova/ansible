@@ -1,44 +1,11 @@
 ---
-- name: Install Java 21
-  ansible.builtin.apt:
-    name: openjdk-21-jre
-    state: present
-    update_cache: true
-
-- name: Set Java 21 as default
-  ansible.builtin.command:
-    cmd: update-alternatives --set java /usr/lib/jvm/java-21-openjdk-amd64/bin/java
-
-- name: Download Jenkins repository key
-  ansible.builtin.get_url:
-    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
-    dest: /usr/share/keyrings/jenkins-keyring.asc
-    mode: "0644"
-
-- name: Add Jenkins repository
-  ansible.builtin.deb822_repository:
-    name: jenkins
-    types:
-      - deb
-    uris:
-      - https://pkg.jenkins.io/debian-stable
-    suites:
-      - binary/
-    signed_by: /usr/share/keyrings/jenkins-keyring.asc
-    state: present
-
-- name: Install Jenkins
-  ansible.builtin.apt:
-    name: jenkins
-    state: present
-    update_cache: true
-
 - name: Install Node.js and npm
   ansible.builtin.apt:
     name:
       - nodejs
       - npm
     state: present
+    update_cache: true
 
 - name: Install Docker
   ansible.builtin.apt:
@@ -48,17 +15,5 @@
 - name: Start and enable Docker
   ansible.builtin.service:
     name: docker
-    state: started
-    enabled: true
-
-- name: Add Jenkins user to Docker group
-  ansible.builtin.user:
-    name: jenkins
-    groups: docker
-    append: true
-
-- name: Start and enable Jenkins
-  ansible.builtin.service:
-    name: jenkins
     state: started
     enabled: true
