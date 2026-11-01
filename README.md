@@ -1,7 +1,6 @@
 
 # Ansible Exercise 5: Run Jenkins as a Docker Container
 
-EXERCISE 5: Install Jenkins as a Docker Container
 In addition to having different OS flavors as an option, your team also wants to be able to run Jenkins as a docker container. So you write another playbook that starts Jenkins as a Docker container with volumes for Jenkins home and Docker itself, because you want to be able to execute Docker commands inside Jenkins.
 
 Here is a reference of a full docker command for starting Jenkins container, which you should map to Ansible playbook:
@@ -12,9 +11,7 @@ docker run --name jenkins -p 8080:8080 -p 50000:50000 -d \
 -v jenkins_home:/var/jenkins_home \
 jenkins/jenkins:lts
 
-
 Your team is happy, because they can now use Ansible to quickly spin up a Jenkins server for different needs.
-
 
 ## Overview
 
