@@ -1,0 +1,116 @@
+---
+- name: Provision IAM for Ansible Control Server
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    region: eu-north-1
+    iam_role_name: exercise-6-ansible-role
+    iam_policy_name: exercise-6-ansible-policy
+    iam_instance_profile_name: exercise-6-ansible-profile
+
+  tasks:
+    - name: Get AWS account ID
+      ansible.builtin.command:
+        cmd: aws sts get-caller-identity --query Account --output text
+      register: account_result
+      changed_when: false
+
+    - name:
+      ansible.builtin.set_fact:
+        aws_account_id: "{{ account_result.stdout | trim }}"
+
+    - name: Find public subnet
+      amazon.aws.ec2_vpc_subnet_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": exercise-6-public-subnet
+      register: public_subnet_info
+
+    - name: Find private subnet
+      amazon.aws.ec2_vpc_subnet_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": exercise-6-private-subnet
+      register: private_subnet_info
+
+    - name: Find Web Security Group
+      amazon.aws.ec2_security_group_info:
+        region: "{{ region }}"
+        filters:
+          group-name: web-server-sg
+      register: web_sg_info
+
+    - name: Find DB Security Group
+      amazon.aws.ec2_security_group_info:
+        region: "{{ region }}"
+        filters:
+          group-name: db-server-sg
+      register: db_sg_info
+
+    - name: Debug private subnet lookup
+      ansible.builtin.debug:
+        msg:
+          - "Private subnet count: {{ private_subnet_info.subnets | length }}"
+          - "Private subnets: {{ private_subnet_info.subnets | map(attribute='subnet_id') | list }}"
+
+    - name: Verify required AWS resources exist
+      ansible.builtin.assert:
+        that:
+          - public_subnet_info.subnets | length == 1
+          - private_subnet_info.subnets | length == 1
+          - web_sg_info.security_groups | length == 1
+          - db_sg_info.security_groups | length == 1
+        fail_msg: >-
+          Expected exactly one public subnet, private subnet,
+          Web SG and DB SG. Run provision-network.yaml first.
+
+    - name: Set Infrastructure IDs
+      ansible.builtin.set_fact:
+        public_subnet_id: "{{ public_subnet_info.subnets[0].subnet_id }}"
+        private_subnet_id: "{{ private_subnet_info.subnets[0].subnet_id }}"
+        web_sg_id: "{{ web_sg_info.security_groups[0].group_id }}"
+        db_sg_id: "{{ db_sg_info.security_groups[0].group_id }}"
+
+    - name: Render IAM policy from template
+      ansible.builtin.set_fact:
+        ansible_control_policy: >-
+          {{
+            lookup(
+              'ansible.builtin.template',
+              'templates/ansible-control-policy.json.j2'
+            ) | from_json
+          }}
+
+    - name: Create custom IAM policy
+      amazon.aws.iam_managed_policy:
+        name: "{{ iam_policy_name }}"
+        description: "Limited EC2 permission for Ansible Exercise 6"
+        policy: "{{ ansible_control_policy }}"
+        state: present
+
+
+    - name: Create IAM Role and attach policy
+      community.aws.iam_role:
+        name: "{{ iam_role_name }}"
+        state: present
+        assume_role_policy_document:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: ec2.amazonaws.com
+              Action: sts:AssumeRole
+        managed_policies:
+          - "arn:aws:iam::{{ aws_account_id }}:policy/{{ iam_policy_name }}"
+        purge_policies: true
+
+    - name: Create Instance Profile
+      amazon.aws.iam_instance_profile:
+        name: "{{ iam_instance_profile_name }}"
+        role: "{{ iam_role_name}}"
+        state: present
+
+
+

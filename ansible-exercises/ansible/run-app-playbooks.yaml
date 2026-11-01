@@ -1,0 +1,42 @@
+
+- name: Run application infrastructure playbooks from Ansible Control Server
+  hosts: ansible_control
+  gather_facts: false
+
+  tasks:
+    - name: Create SSH directory
+      ansible.builtin.file:
+        path: /home/ubuntu/.ssh
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+      become: true
+
+    - name: Copy SSH private key
+      ansible.builtin.copy:
+        src: "{{ lookup('env', 'HOME') }}/.ssh/ansible-jenkins.pem"
+        dest: /home/ubuntu/.ssh/ansible-jenkins.pem
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"
+      become: true
+      no_log: true
+
+    - name: Install MySql Ansible Galaxy role
+      ansible.builtin.command:
+        cmd: ansible-galaxy role install geerlingguy.mysql
+      register: mysql_role_install
+      changed_when: "'was installed successfully' in mysql_role_install.stdout"
+
+    - name: Provision Web and DB servers
+      ansible.builtin.command:
+        cmd: ansible-playbook provision-app-servers.yaml
+      args:
+        chdir: /home/ubuntu/ansible-project
+
+    - name: Configure Web and DB servers
+      ansible.builtin.command:
+        cmd: ansible-playbook configure-app-servers.yaml
+      args:
+        chdir: /home/ubuntu/ansible-project

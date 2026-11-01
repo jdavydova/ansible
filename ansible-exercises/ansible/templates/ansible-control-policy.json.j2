@@ -1,0 +1,82 @@
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DescribeInfrastructure",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceAttribute",
+        "ec2:DescribeImages",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeVpcAttribute",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LaunchWithExerciseResources",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:{{ region }}::image/*",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:volume/*",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:network-interface/*",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:subnet/{{ public_subnet_id }}",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:subnet/{{ private_subnet_id }}",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:security-group/{{ web_sg_id }}",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:security-group/{{ db_sg_id }}",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:key-pair/ansible-jenkins"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "{{ region }}"
+        }
+      }
+    },
+    {
+      "Sid": "RequireProjectTagWhenLaunching",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/Project": "ansible-exercise-6",
+          "ec2:InstanceType": "t3.micro"
+        }
+      }
+    },
+    {
+      "Sid": "TagCreatedInstances",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": [
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:instance/*",
+        "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": "RunInstances"
+        }
+      }
+    },
+    {
+      "Sid": "ManageExerciseInstancesOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:StartInstances",
+        "ec2:StopInstances"
+      ],
+      "Resource": "arn:aws:ec2:{{ region }}:{{ aws_account_id }}:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:ResourceTag/Project": "ansible-exercise-6"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+---
+- import_playbook: provision-network.yaml
+- import_playbook: provision-iam.yaml
+- import_playbook: provision-ansible-server.yaml
+- import_playbook: configure-ansible-server.yaml
+- import_playbook: run-app-playbooks.yaml

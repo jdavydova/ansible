@@ -1,0 +1,148 @@
+---
+- name: Discover application servers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - vars/project-vars.yaml
+
+  tasks:
+    - name: Find Web server
+      amazon.aws.ec2_instance_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": web-server
+          instance-state-name: running
+      register: web_server_info
+
+    - name: Find DB server
+      amazon.aws.ec2_instance_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": db-server
+          instance-state-name: running
+      register: db_server_info
+
+    - name: Fail if Web server was not found
+      ansible.builtin.fail:
+        msg: "Web server was not found"
+      when: web_server_info.instances | length == 0
+
+    - name: Fail if DB server not found
+      ansible.builtin.fail:
+        msg: "DB server was not found"
+      when: db_server_info.instances | length == 0
+
+    - name: Add Web server to inventory
+      ansible.builtin.add_host:
+        name: "{{ web_server_info.instances[0].private_ip_address }}"
+        groups: web_server
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+
+    - name: Add DB server to inventory
+      ansible.builtin.add_host:
+        name: "{{ db_server_info.instances[0].private_ip_address }}"
+        groups: db_server
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+
+    - name: Show discovered servers
+      ansible.builtin.debug:
+        msg:
+          - "Web private IP: {{ web_server_info.instances[0].private_ip_address }}"
+          - "DB private IP: {{ db_server_info.instances[0].private_ip_address }}"
+
+- name: Configure MySQL database server
+  hosts: db_server
+  become: true
+
+  vars_files:
+    - vars/project-vars.yaml
+
+  vars:
+    mysql_databases:
+      - name: "{{ db_name }}"
+
+    mysql_users: []
+
+  roles:
+    - geerlingguy.mysql
+
+  tasks:
+    - name: Create aplication MySQL user
+      community.mysql.mysql_user:
+        name: "{{ db_user }}"
+        host: "%"
+        plugin: caching_sha2_password
+        plugin_auth_string: "{{ db_password }}"
+        priv: "{{ db_name }}.*:ALL"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      no_log: true
+
+- name: Configure Web server
+  hosts: web_server
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - vars/project-vars.yaml
+
+  roles:
+    - create_user
+    - install_java
+
+  tasks:
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ linux_user }}"
+        group: "{{ linux_user }}"
+        mode: "0755"
+
+    - name: Copy Java application
+      ansible.builtin.copy:
+        src: "{{ local_jar }}"
+        dest: "{{ app_dir }}/{{ jar_name }}"
+        owner: "{{ linux_user }}"
+        group: "{{ linux_user }}"
+        mode: "0644"
+
+    - name: Create systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/java-app.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Java Application
+          After=network.target
+          
+          [Service]
+          User={{ linux_user }}
+          WorkingDirectory={{ app_dir }}
+          
+          Environment="DB_SERVER={{ groups['db_server'][0] }}"  
+          Environment="DB_PORT={{ db_port }}"
+          Environment="DB_NAME={{ db_name }}"
+          Environment="DB_USER={{ db_user }}"
+          Environment="DB_PASSWORD={{ db_password }}"
+          
+          ExecStart=/usr/bin/java -jar {{ app_dir }}/{{ jar_name }}
+          
+          Restart=always
+          RestartSec=5
+          
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Start and enable Java application
+      ansible.builtin.systemd:
+        name: java-app
+        state: restarted
+        enabled: true
+        daemon_reload: true

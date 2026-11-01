@@ -1,0 +1,28 @@
+---
+- name: Build Java Application locally
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    app_version: "1.0-SNAPSHOT"
+    artifact_name: "java-app-{{ app_version }}.jar"
+
+  tasks:
+    - name: Build Application
+      ansible.builtin.command:
+        cmd: gradle build
+      args:
+        chdir: "{{ playbook_dir }}/.."
+
+    - name: Create Ansible files directory
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/files"
+        state: directory
+        mode: "0755"
+
+    - name: Copy versioned JAR to Ansible files
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../build/libs/{{ artifact_name}}"
+        dest: "{{ playbook_dir }}/files/{{ artifact_name}}"
+        mode: "0644"

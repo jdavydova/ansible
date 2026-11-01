@@ -1,0 +1,138 @@
+---
+- name: Provision application servers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    region: eu-north-1
+    image: ami-0aba19e56f3eaec05
+
+  tasks:
+    - name: Find VPC
+      amazon.aws.ec2_vpc_net_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": exercise-6-vpc
+      register: vpc_inf
+
+    - name: Fail if VPC was not found
+      ansible.builtin.assert:
+        that:
+          - vpc_inf.vpcs | length == 1
+        fail_msg: "Expected exactly one exercise-6-vpc"
+
+    - name: Find public subnet
+      amazon.aws.ec2_vpc_subnet_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": exercise-6-public-subnet
+      register: public_subnet_info
+
+    - name: Find private subnet
+      amazon.aws.ec2_vpc_subnet_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": exercise-6-private-subnet
+      register: private_subnet_info
+
+    - name: Find Web Security group
+      amazon.aws.ec2_security_group_info:
+        region: "{{ region }}"
+        filters:
+          group-name: web-server-sg
+          vpc-id: "{{ vpc_inf.vpcs[0].vpc_id }}"
+      register: web_sg_info
+
+    - name: Find DB Security group
+      amazon.aws.ec2_security_group_info:
+        region: "{{ region }}"
+        filters:
+          group-name: db-server-sg
+          vpc-id: "{{ vpc_inf.vpcs[0].vpc_id }}"
+      register: db_sg_info
+
+    - name: Fail if Web Security Group was not found
+      ansible.builtin.fail:
+        msg: "Security group sg-web-server was not found"
+      when: web_sg_info.security_groups | length == 0
+
+    - name: Fail if DB Security Group was not found
+      ansible.builtin.fail:
+        msg: "Security group sg-db-server was not found"
+      when: db_sg_info.security_groups | length == 0
+
+    - name: Create Web server
+      amazon.aws.ec2_instance:
+        name: web-server
+        key_name: ansible-jenkins
+        instance_type: t3.micro
+        image_id: "{{ image }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ public_subnet_info.subnets[0].subnet_id }}"
+        security_group: "{{ web_sg_info.security_groups[0].group_id }}"
+        network:
+          assign_public_ip: true
+        tags:
+          Project: ansible-exercise-6
+          ManagedBy: ansible
+          Role: web
+        wait: true
+      register: web_server
+
+    - name: Create DB server
+      amazon.aws.ec2_instance:
+        name: db-server
+        key_name: ansible-jenkins
+        instance_type: t3.micro
+        image_id: "{{ image }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ private_subnet_info.subnets[0].subnet_id }}"
+        security_group: "{{ db_sg_info.security_groups[0].group_id }}"
+
+        network:
+          assign_public_ip: false
+        tags:
+          Project: ansible-exercise-6
+          ManagedBy: ansible
+          Role: database
+        wait: true
+      register: db_server
+
+    - name: Wait for Web server SSH
+      ansible.builtin.wait_for:
+        host: "{{ web_server.instances[0].private_ip_address }}"
+        port: 22
+        delay: 10
+        timeout: 180
+
+    - name: Wait for DB server SSH
+      ansible.builtin.wait_for:
+        host: "{{ db_server.instances[0].private_ip_address }}"
+        port: 22
+        delay: 10
+        timeout: 180
+
+    - name: Show Web server public IP
+      ansible.builtin.debug:
+        msg: "{{ web_server.instances[0].public_ip_address }}"
+
+    - name: Show DB server private IP
+      ansible.builtin.debug:
+        msg: "{{ db_server.instances[0].private_ip_address }}"
+
+    - name: Add Web server to inventory
+      ansible.builtin.add_host:
+        name: "{{ web_server.instances[0].private_ip_address }}"
+        groups: web_server
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+
+    - name: Add DB server to inventory
+      ansible.builtin.add_host:
+        name: "{{ db_server.instances[0].private_ip_address }}"
+        groups: db_server
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"

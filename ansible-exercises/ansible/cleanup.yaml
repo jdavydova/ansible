@@ -1,0 +1,33 @@
+---
+- name: Delete AWS EC2 instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: eu-north-1
+
+  tasks:
+    - name: Find exercise EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Project": "ansible-exercise-6"
+          instance-state-name:
+            - pending
+            - running
+            - stopping
+            - stopped
+      register: exercise_instances
+
+    - name: Show instances to delete
+      ansible.builtin.debug:
+        msg: "{{ exercise_instances.instances | map(attribute='instance_id') | list }}"
+
+    - name: Terminate exercise EC2 instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        instance_ids: "{{ exercise_instances.instances | map(attribute='instance_id') | list }}"
+        state: absent
+        wait: true
+      when: exercise_instances.instances | length > 0

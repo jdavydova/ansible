@@ -1,0 +1,63 @@
+---
+- name: Provision Ansible control Server
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    region: eu-north-1
+
+  tasks:
+    - name: Find public subnet
+      amazon.aws.ec2_vpc_subnet_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": exercise-6-public-subnet
+      register: public_subnet_info
+
+    - name: Find Ansible control Security Group
+      amazon.aws.ec2_security_group_info:
+        region: "{{ region }}"
+        filters:
+          group-name: ansible-control-sg
+      register: ansible_sg_info
+
+    - name: Fail if public subnet was not found
+      ansible.builtin.fail:
+        msg: "Public subnet exercise-6-public-subnet was not found"
+      when: public_subnet_info.subnets | length == 0
+
+    - name: Create Ansible control server
+      amazon.aws.ec2_instance:
+        name: ansible-control-plane
+        key_name: ansible-jenkins
+        instance_type: t3.micro
+        image_id: ami-0aba19e56f3eaec05
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ public_subnet_info.subnets[0].subnet_id }}"
+        security_group: "{{ ansible_sg_info.security_groups[0].group_id }}"
+        iam_instance_profile: exercise-6-ansible-profile
+        network:
+          assign_public_ip: true
+        wait: true
+
+      register: ansible_server
+
+    - name: Show Ansible server public IP
+      ansible.builtin.debug:
+        msg: "{{ ansible_server.instances[0].public_ip_address }}"
+
+    - name: Add Ansible control server to inventory
+      ansible.builtin.add_host:
+        name: "{{ ansible_server.instances[0].public_ip_address }}"
+        groups: ansible_control
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "~/.ssh/ansible-jenkins.pem"
+
+    - name: Wait for SSH
+      ansible.builtin.wait_for:
+        host: "{{ ansible_server.instances[0].public_ip_address }}"
+        port: 22
+        delay: 5
+        timeout: 300
+

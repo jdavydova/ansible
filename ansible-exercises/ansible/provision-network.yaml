@@ -1,0 +1,184 @@
+---
+- name: Provision network
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    region: eu-north-1
+    vpc_cidr: 10.0.0.0/16
+    public_subnet_cidr: 10.0.1.0/24
+    private_subnet_cidr: 10.0.2.0/24
+
+  tasks:
+    - name: Create VPC
+      amazon.aws.ec2_vpc_net:
+        name: exercise-6-vpc
+        cidr_block: "{{ vpc_cidr }}"
+        region: "{{ region }}"
+        state: present
+        tags:
+          Name: exercise-6-vpc
+      register: vpc
+
+    - name: Create Internet Gateway
+      amazon.aws.ec2_vpc_igw:
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        state: present
+        tags:
+          Name: exercise-6-igw
+      register: igw
+
+    - name: Create public subnet
+      amazon.aws.ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{ vpc.vpc.id }}"
+        cidr: "{{ public_subnet_cidr }}"
+        region: "{{ region }}"
+        az: eu-north-1a
+        map_public: true
+        tags:
+          Name: exercise-6-public-subnet
+      register: public_subnet
+
+    - name: Create private subnet
+      amazon.aws.ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{ vpc.vpc.id }}"
+        cidr: "{{ private_subnet_cidr }}"
+        region: "{{ region }}"
+        az: eu-north-1a
+        map_public: false
+        tags:
+          Name: exercise-6-private-subnet
+      register: private_subnet
+
+    - name: Create public route table
+      amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        subnets:
+          - "{{ public_subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id }}"
+        tags:
+          Name: exercise-6-public-rt
+
+    - name: Find existing NAT Gateway
+      amazon.aws.ec2_vpc_nat_gateway_info:
+        region: "{{ region }}"
+        filters:
+          subnet-id: "{{ public_subnet.subnet.id }}"
+          state:
+            - available
+            - pending
+      register: nat_gateway_info
+
+
+    - name: Allocate Elastic IP for NAT Gateway
+      amazon.aws.ec2_eip:
+        region: "{{ region }}"
+        in_vpc: true
+        state: present
+        tags:
+          Name: exercise-6-nat-eip
+      register: nat_eip
+      when: nat_gateway_info.result | length == 0
+
+    - name: Create NAT Gateway
+      amazon.aws.ec2_vpc_nat_gateway:
+        subnet_id: "{{ public_subnet.subnet.id }}"
+        allocation_id: "{{ nat_eip.allocation_id }}"
+        region: "{{ region }}"
+        state: present
+        wait: true
+        tags:
+          Name: exercise-6-nat-gateway
+      register: new_nat_gateway
+      when: nat_gateway_info.result | length == 0
+
+    - name: Set NAT Gateway ID
+      ansible.builtin.set_fact:
+        nat_gateway_id: >-
+          {{
+            nat_gateway_info.result[0].nat_gateway_id
+            if nat_gateway_info.result | length > 0
+            else new_nat_gateway.nat_gateway_id
+          }}
+
+    - name: Create private route table
+      amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        subnets:
+          - "{{ private_subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            nat_gateway_id: "{{ nat_gateway_id }}"
+        tags:
+          Name: exercise-6-private-rt
+
+    - name: Get my public IP
+      ansible.builtin.uri:
+        url: https://checkip.amazonaws.com
+        return_content: true
+      register: public_ip_response
+
+    - name: Set my public IP
+      ansible.builtin.set_fact:
+        my_public_ip: "{{ public_ip_response.content | trim }}"
+
+    - name: Create Security group for Ansible control server
+      amazon.aws.ec2_security_group:
+        name: ansible-control-sg
+        description: Security group for Ansible control server
+        region: "{{ region }}"
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+        rules:
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: "{{ my_public_ip }}/32"
+      register: ansible_sg
+
+    - name: Create Security group for Web server
+      amazon.aws.ec2_security_group:
+        name: web-server-sg
+        description: Security group for Web server
+        region: "{{ region }}"
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+        rules:
+          - proto: tcp
+            ports:
+              - 8080
+            cidr_ip: "{{ my_public_ip }}/32"
+
+          - proto: tcp
+            ports:
+              - 22
+            group_id: "{{ ansible_sg.group_id }}"
+      register: web_sg
+
+
+    - name: Create Security group for DB server
+      amazon.aws.ec2_security_group:
+        name: db-server-sg
+        description: Security group for DB server
+        region: "{{ region }}"
+        vpc_id: "{{ vpc.vpc.id }}"
+        state: present
+        rules:
+          - proto: tcp
+            ports:
+              - 22
+            group_id: "{{ ansible_sg.group_id }}"
+
+          - proto: tcp
+            ports:
+              - 3306
+            group_id: "{{ web_sg.group_id }}"
+      register: db_sg

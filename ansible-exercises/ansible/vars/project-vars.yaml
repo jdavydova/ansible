@@ -1,0 +1,20 @@
+---
+region: eu-north-1
+
+# Application
+linux_user: java-app
+
+app_dir: "/home/{{ linux_user }}/app"
+
+app_version: "1.0-SNAPSHOT"
+jar_name: "java-app-{{ app_version }}.jar"
+local_jar: "{{ playbook_dir }}/files/{{ jar_name }}"
+
+# Database
+db_name: java-app-db
+db_user: java-app-user
+db_password: "PASSWORD"
+db_port: 3306
+
+
+

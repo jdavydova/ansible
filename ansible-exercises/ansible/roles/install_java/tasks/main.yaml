@@ -1,0 +1,11 @@
+---
+- name: Install Java 21
+  ansible.builtin.apt:
+    name: openjdk-21-jre
+    state: present
+    update_cache: true
+
+- name: Install ACL
+  ansible.builtin.apt:
+    name: acl
+    state: present
