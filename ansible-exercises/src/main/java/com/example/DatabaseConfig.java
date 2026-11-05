@@ -12,7 +12,7 @@ import java.sql.SQLException;
 public class DatabaseConfig {
 
     private String user = System.getenv("DB_USER");
-    private String password = System.getenv("DB_PWD");
+    private String password = System.getenv("DB_PASSWORD");
     private String serverName = System.getenv("DB_SERVER"); // db host name, like localhost without the port
     private String dbName = System.getenv("DB_NAME");
     private MysqlDataSource datasource = new MysqlDataSource();

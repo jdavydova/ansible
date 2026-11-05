@@ -39,6 +39,10 @@
         iam_instance_profile: exercise-6-ansible-profile
         network:
           assign_public_ip: true
+        tags:
+          Project: ansible-exercise-6
+          ManagedBy: ansible
+          Role: control
         wait: true
 
       register: ansible_server

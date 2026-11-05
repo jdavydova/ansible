@@ -15,11 +15,18 @@
           "tag:Name": exercise-6-vpc
       register: vpc_info
 
+    - name: Validate Exercise 6 VPC
+      ansible.builtin.assert:
+        that:
+          - vpc_info.vpcs | length <= 1
+        fail_msg: "Multiple Exercise 6 VPCs found. Aborting cleanup."
+
     - name: Find Web server
       amazon.aws.ec2_instance_info:
         region: "{{ region }}"
         filters:
           "tag:Name": web-server
+          "tag:Project": ansible-exercise-6
       register: web_info
 
     - name: Find DB server
@@ -27,6 +34,7 @@
         region: "{{ region }}"
         filters:
           "tag:Name": db-server
+          "tag:Project": ansible-exercise-6
       register: db_info
 
     - name: Find Ansible control server
@@ -34,6 +42,7 @@
         region: "{{ region }}"
         filters:
           "tag:Name": ansible-control-plane
+          "tag:Project": ansible-exercise-6
       register: ansible_info
 
     - name: Terminate Web server
@@ -64,7 +73,7 @@
       amazon.aws.ec2_vpc_nat_gateway_info:
         region: "{{ region }}"
         filters:
-          tag:Name: exercise-6-nat-gateway
+          "tag:Name": exercise-6-nat-gateway
       register: nat_info
 
     - name: Delete NAT Gateway
@@ -91,17 +100,17 @@
       loop: "{{ eip_info.addresses }}"
       when: eip_info.addresses | length > 0
 
-    - name: Delete Web Security Group
+    - name: Delete DB Security Group
       amazon.aws.ec2_security_group:
-        name: web-server-sg
+        name: db-server-sg
         region: "{{ region }}"
         vpc_id: "{{ vpc_info.vpcs[0].vpc_id }}"
         state: absent
       when: vpc_info.vpcs | length > 0
 
-    - name: Delete DB Security Group
+    - name: Delete Web Security Group
       amazon.aws.ec2_security_group:
-        name: db-server-sg
+        name: web-server-sg
         region: "{{ region }}"
         vpc_id: "{{ vpc_info.vpcs[0].vpc_id }}"
         state: absent
@@ -129,6 +138,31 @@
         vpc_id: "{{ vpc_info.vpcs[0].vpc_id }}"
         cidr: 10.0.2.0/24
         state: absent
+      when: vpc_info.vpcs | length > 0
+
+    - name: Find Exercise 6 route tables
+      amazon.aws.ec2_vpc_route_table_info:
+        region: "{{ region }}"
+        filters:
+          vpc-id: "{{ vpc_info.vpcs[0].vpc_id }}"
+      register: route_tables_info
+      when: vpc_info.vpcs | length > 0
+
+    - name: Delete Exercise 6 route tables
+      amazon.aws.ec2_vpc_route_table:
+        region: "{{ region }}"
+        vpc_id: "{{ vpc_info.vpcs[0].vpc_id }}"
+        route_table_id: "{{ item.id }}"
+        lookup: id
+        state: absent
+      loop: >-
+        {{
+          route_tables_info.route_tables | default([])
+          | selectattr('tags.Name', 'defined')
+          | selectattr('tags.Name', 'in',
+              ['exercise-6-public-rt', 'exercise-6-private-rt'])
+          | list
+        }}
       when: vpc_info.vpcs | length > 0
 
     - name: Delete Internet Gateway
