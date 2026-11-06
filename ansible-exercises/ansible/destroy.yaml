@@ -179,3 +179,18 @@
         region: "{{ region }}"
         state: absent
       when: vpc_info.vpcs | length > 0
+
+    - name: Delete Ansible instance profile
+      amazon.aws.iam_instance_profile:
+        name: exercise-6-ansible-profile
+        state: absent
+
+    - name: Delete Ansible IAM role
+      community.aws.iam_role:
+        name: exercise-6-ansible-role
+        state: absent
+
+    - name: Delete Ansible IAM policy
+      amazon.aws.iam_managed_policy:
+        name: exercise-6-ansible-policy
+        state: absent
