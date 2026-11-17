@@ -2,3 +2,16 @@
 build/
 .idea/
 *.class
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+
+# SSH keys
+*.pem
+*.key
