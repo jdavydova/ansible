@@ -15,3 +15,9 @@ crash.log
 # SSH keys
 *.pem
 *.key
+
+# Generated Ansible inventory
+ansible/inventory-terraform.ini
+
+ansible/vars/secrets.yaml
+ansible/vars/vault-password.txt

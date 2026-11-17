@@ -13,7 +13,6 @@ local_jar: "{{ playbook_dir }}/files/{{ jar_name }}"
 # Database
 db_name: java-app-db
 db_user: java-app-user
-db_password: "PASSWORD"
 db_port: 3306
 
 

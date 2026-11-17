@@ -1,232 +1,350 @@
-EXERCISE 6: Web server and Database server configuration
-Great, you have helped automate some IT processes in your company. Now another team wants your support as well. They want to automate deploying and configuring a web server and a database server on AWS. The project is not dockerized and they are using a traditional application setup.
+# Exercise 6 — AWS Infrastructure with Terraform and Application Deployment with Ansible
 
-The setup you and the team agreed on is the following: You create a dedicated Ansible server on AWS. In the same VPC as the Ansible server, you create 2 servers, 1 for deploying your Java application and another one for running a MySQL database. Also, the database should not be accessible from outside, only within the VPC, so the DB server shouldn't have a public IP address.
+This educational DevOps project uses **Terraform** to provision AWS infrastructure and **Ansible** to configure a dedicated control server, a Java web server, and a private MySQL database server.
 
-So your task is to:
+> **Status:** Terraform validation and planning and Ansible syntax checks have been performed during development. A successful end-to-end AWS deployment has **not yet been verified**. The instructions below describe the intended workflow, not a completed deployment.
 
-Provision and configure dedicated Ansible server
+## Exercise requirements
 
-Write an Ansible playbook that provisions a dedicated ansible-control-plane server
-Write an Ansible playbook that configures the ansible server with all needed tools as well as copies all needed ansible playbooks and configuration for execution there
-Provision and configure databse and web servers
-
-Write Ansible playbook that provisions database and web servers.
-Write Ansible playbook that installs and starts MySQL server on the EC2 instance without a public IP address. And deploys and runs the Java web application on another EC2 instance
-NOTES:
-
-Use an existing mysql role for installing mysql on the database server, instead of writing the whole logic yourself
-The last 2 playbooks for provisioning and configuring web and database servers will be executed from Ansible control server, because we can't access the database private IP address from outside VPC
-Since the database server will have no public IP address, it will not have direct internet access. But we will need to download and install some tools, like mysql service itself on the server, and you can do it via NAT gateway. So make sure to create database server in a "private" subnet, with NAT gateway instead of Internet gateway configuration.
-Once all the playbooks executed successfully, check that the java application is running and accessible from browser at http://web-server-public-address:8080
-
-# Exercise 6 — Automated AWS Infrastructure and Java Application Deployment with Ansible
-
-An Ansible-based DevOps exercise that provisions AWS infrastructure, configures an Ansible control node, deploys a Java application and MySQL database on separate EC2 instances, and provides playbooks for cleanup and teardown.
-
-> **Scope:** This repository archive contains the `ansible/` directory and a prebuilt application JAR. The Java/Gradle source project is not included in this archive. This README documents the playbooks as supplied, rather than claiming that every operation has been tested in a fresh AWS account.
+- Run a dedicated Ansible Control Server on AWS.
+- Deploy the Java application and MySQL database on separate EC2 instances in the same VPC.
+- Keep the database instance in a private subnet **without a public IP address**.
+- Allow the private database to download packages through a NAT Gateway.
+- Configure MySQL using an existing Ansible Galaxy role (`geerlingguy.mysql`).
+- Run Web and DB configuration playbooks **from the Ansible Control Server**.
+- Verify the Java application at `http://<WEB_PUBLIC_IP>:8080`.
 
 ## Architecture
 
 ```text
-Developer workstation (Ansible + AWS credentials + SSH key)
-    |
-    | SSH :22 (developer public IPv4 /32)
-    v
-AWS VPC: exercise-6-vpc (10.0.0.0/16), eu-north-1
-|
-+-- Public subnet: 10.0.1.0/24
-|   +-- Ansible Control Server (EC2, public IP, IAM instance profile)
-|   |      | SSH :22 over private networking
-|   |      +----------------------------+
-|   |                                   |
-|   +-- Web Server (EC2, public IP) <---+
-|          Java / Spring Boot :8080
-|          | MySQL :3306
-|          v
-+-- Private subnet: 10.0.2.0/24
-|   +-- DB Server (EC2, private IP only)
-|          MySQL
-|   +-- Private route table -> NAT Gateway in public subnet
-|
-+-- Internet Gateway + public route table
+Developer workstation (Terraform, Ansible, AWS CLI, SSH key)
+  |
+  | Terraform -> AWS API
+  | SSH :22 -> Control public IP (developer public IPv4 /32)
+  v
+AWS VPC 10.0.0.0/16 — eu-north-1
+  |
+  +-- Public subnet 10.0.1.0/24 — eu-north-1a
+  |     +-- Ansible Control EC2 (public + private IP)
+  |     |     | SSH :22 to Web and DB over private IPs
+  |     |     +------------------------------+
+  |     |                                    |
+  |     +-- Web EC2 (public + private IP) <--+
+  |           Java application :8080
+  |           | MySQL :3306
+  |           v
+  +-- Private subnet 10.0.2.0/24 — eu-north-1a
+  |     +-- DB EC2 (private IP only)
+  |           MySQL :3306
+  |     +-- Private route table -> NAT Gateway (public subnet)
+  |
+  +-- Internet Gateway + public route table
 ```
-
-The public subnet hosts the control and web servers. The database is isolated in the private subnet and can use the NAT Gateway for outbound access. Both subnets are configured in `eu-north-1a`.
 
 ### Network access
 
 | Destination | Port | Allowed source |
 |---|---:|---|
-| Ansible Control Server | 22/TCP | Developer's detected public IPv4 (`/32`) |
-| Web Server | 22/TCP | Ansible Control security group |
-| Web Server | 8080/TCP | Developer's detected public IPv4 (`/32`) |
-| DB Server | 22/TCP | Ansible Control security group |
-| DB Server | 3306/TCP | Web Server security group |
+| Ansible Control | TCP/22 | Developer's public IPv4 (`my_ip`, `/32`) |
+| Web | TCP/22 | Ansible Control security group |
+| Web | TCP/8080 | Developer's public IPv4 (`my_ip`, `/32`) |
+| DB | TCP/22 | Ansible Control security group |
+| DB | TCP/3306 | Web security group |
 
-**Note:** Port 8080 is not opened to the Ansible Control security group. Access from the developer's allowed public IP is the intended test path; a request to the web server's private IP from the control node may time out even when the Java service is running.
+Security groups permit outbound traffic. The DB instance has no public IP; its private subnet uses a NAT Gateway for outbound package downloads. The web application's port 8080 is **not** opened to the Control security group, so test it from the developer's allowed public IP.
 
 ## Technology stack
 
-- **Automation:** Ansible, `amazon.aws`, custom Ansible roles, `geerlingguy.mysql`
-- **Cloud:** AWS EC2, VPC, subnets, route tables, Internet Gateway, NAT Gateway, Elastic IP, Security Groups, IAM
-- **Application:** Java 21, Spring Boot application packaged as a JAR, systemd
-- **Database:** MySQL (`community.mysql` module for application user creation)
-- **Build:** Gradle (when the parent Java source project is available)
-- **Region:** `eu-north-1` (Stockholm)
+- **Infrastructure:** Terraform, AWS EC2, VPC, public/private subnets, Internet Gateway, NAT Gateway, Elastic IP, route tables, security groups, IAM.
+- **Configuration:** Ansible, custom `create_user` and `install_java` roles, `geerlingguy.mysql` Galaxy role, `ansible.mysql` collection.
+- **Application:** Java 21, Spring Boot JAR, systemd.
+- **Database:** MySQL.
+- **Region:** `eu-north-1` (Stockholm).
 
 ## Repository layout
 
 ```text
-ansible/
-├── deploy-all.yaml                 # Main orchestration entry point
-├── provision-network.yaml         # VPC, subnets, routing, NAT, security groups
-├── provision-iam.yaml             # IAM policy, role and instance profile
-├── provision-ansible-server.yaml  # Control EC2 instance
-├── configure-ansible-server.yaml  # Install Ansible/AWS dependencies and copy project
-├── run-app-playbooks.yaml         # Run application playbooks from control server
-├── provision-app-servers.yaml     # Web and DB EC2 instances
-├── configure-app-servers.yaml     # MySQL, Java, systemd application service
-├── build-app.yaml                 # Optional local Gradle build and JAR copy
-├── cleanup.yaml                   # Terminate EC2 instances with project tag
-├── destroy.yaml                   # EC2 and network infrastructure teardown
-├── inventory                      # Local Ansible control group configuration
-├── vars/
-│   └── project-vars.yaml          # Shared app and database variables
-├── templates/
-│   └── ansible-control-policy.json.j2
-├── roles/
-│   ├── create_user/
-│   └── install_java/
-└── files/
-    └── java-app-1.0-SNAPSHOT.jar  # Prebuilt deployable application
+.
+├── README.md
+├── build.gradle
+├── settings.gradle
+├── src/
+├── terraform/
+│   ├── versions.tf
+│   ├── providers.tf
+│   ├── variables.tf
+│   ├── vpc.tf
+│   ├── subnets.tf
+│   ├── networking.tf
+│   ├── security-groups.tf
+│   ├── iam.tf
+│   ├── ec2.tf
+│   ├── outputs.tf
+│   └── .terraform.lock.hcl
+└── ansible/
+    ├── configure-ansible-server.yaml
+    ├── configure-app-servers.yaml
+    ├── run-app-playbooks.yaml
+    ├── deploy-terraform.yaml
+    ├── inventory-terraform.ini
+    ├── requirements.yaml
+    ├── vars/
+    │   └── project-vars.yaml
+    ├── roles/
+    │   ├── create_user/
+    │   └── install_java/
+    └── files/
+        └── java-app-1.0-SNAPSHOT.jar
 ```
+
+Older `provision-*.yaml`, `deploy-all.yaml`, `cleanup.yaml`, and `destroy.yaml` playbooks belong to the **legacy Ansible-based infrastructure workflow**. Do not run them together with Terraform-managed resources. For this workflow, use `terraform destroy` to remove infrastructure.
 
 ## Prerequisites
 
-1. An AWS account with credentials permitted to provision the EC2, networking and IAM resources used by the playbooks.
-2. Ansible installed on your workstation, plus the `amazon.aws` collection and Python AWS SDK (`boto3`/`botocore`) in the Python environment used by Ansible.
-3. AWS CLI configured for the intended account, with `eu-north-1` available.
-4. An existing EC2 key pair named **`ansible-jenkins`**, with its private key at `~/.ssh/ansible-jenkins.pem` on your workstation.
-5. Network access to AWS APIs and SSH access from your workstation's current public IPv4 address.
-6. Sufficient AWS service quotas and budget for three `t3.micro` EC2 instances, a NAT Gateway, an Elastic IP and related resources.
+1. An AWS account and AWS CLI credentials authorized to create the required EC2, networking, IAM, and related resources.
+2. Terraform and Ansible installed on the developer workstation.
+3. An existing AWS EC2 key pair named `ansible-jenkins`, with the matching private key stored locally at `~/.ssh/ansible-jenkins.pem`.
+4. An SSH agent with that key loaded, if using agent forwarding to the trusted Control EC2.
+5. A current public IPv4 address to restrict SSH and application access.
+6. An AWS budget that allows **three EC2 instances, a NAT Gateway, Elastic IP, public IPv4 addresses, and associated usage charges**. NAT Gateway charges accrue while it exists, even when the app is idle.
 
-Example setup and checks:
+Check the environment from the **repository root**:
 
 ```bash
 aws sts get-caller-identity
 aws configure get region
-ansible-galaxy collection install amazon.aws
-python3 -m pip show boto3 botocore
+terraform version
+ansible --version
+ssh-add -l
+```
+
+If needed, load the SSH key:
+
+```bash
 chmod 600 ~/.ssh/ansible-jenkins.pem
+ssh-add ~/.ssh/ansible-jenkins.pem
 ```
 
-> The playbooks reference a specific Ubuntu AMI (`ami-0aba19e56f3eaec05`) in `eu-north-1`. Verify that it is still available before deploying. The `geerlingguy.mysql` Galaxy role is installed by `run-app-playbooks.yaml` on the control node. Ensure its required MySQL collection dependencies are available as well.
+## 1. Provision infrastructure with Terraform
 
-## Deployment
-
-Run the commands from the `ansible/` directory.
-
-### 1. Optional: build the Java application
-
-The archive already contains `files/java-app-1.0-SNAPSHOT.jar`. If you also have the parent Java/Gradle project, rebuild and copy the JAR with:
+Run from the repository root:
 
 ```bash
-ansible-playbook -i inventory build-app.yaml
+cd terraform
+terraform init
+terraform fmt -check
+terraform validate
 ```
 
-`build-app.yaml` runs `gradle build` in the parent directory and copies the resulting JAR into `ansible/files/`. **It is not part of `deploy-all.yaml`**, so run it separately whenever you change application code.
-
-### 2. Deploy the infrastructure and application
+Get your current public IPv4 address from a trusted source and pass it as a CIDR with `/32`:
 
 ```bash
-ansible-playbook -i inventory deploy-all.yaml
+terraform plan -var="my_ip=<YOUR_PUBLIC_IPV4>/32"
 ```
 
-The orchestrator imports the playbooks in this order:
+Review the planned resources and expected costs. **Only after reviewing the plan**, create the infrastructure:
 
-1. `provision-network.yaml` — VPC, subnets, route tables, IGW, NAT Gateway, Elastic IP and security groups.
-2. `provision-iam.yaml` — restricted custom policy, role and instance profile for the control node.
-3. `provision-ansible-server.yaml` — EC2 control node and dynamic Ansible inventory entry.
-4. `configure-ansible-server.yaml` — installs required software and copies the Ansible project.
-5. `run-app-playbooks.yaml` — transfers the SSH key, installs the MySQL Galaxy role and executes the app provisioning/configuration playbooks on the control node.
+```bash
+terraform apply -var="my_ip=<YOUR_PUBLIC_IPV4>/32"
+```
 
-The application servers are provisioned and configured **from the Ansible Control Server**, not directly from the developer workstation. Host discovery uses AWS instance information and dynamically adds hosts to inventory.
+Terraform will ask for confirmation. Do not use an old public IP if your network address has changed.
 
-### 3. Verify the application
+Retrieve the created addresses:
 
-Find the Web Server's public IPv4 address in the playbook output or AWS EC2 console. From the developer workstation whose public IP is allowed by the security group:
+```bash
+terraform output
+terraform output -raw control_public_ip
+terraform output -raw web_public_ip
+terraform output -raw web_private_ip
+terraform output -raw db_private_ip
+```
+
+Return to the repository root:
+
+```bash
+cd ..
+```
+
+> Terraform outputs and resource identifiers are generated **only after a successful apply**. The earlier plan of 26 resources is not proof that deployment has completed.
+
+## 2. Populate the Ansible inventory
+
+Edit `ansible/inventory-terraform.ini`, replacing the placeholders with **actual Terraform outputs**:
+
+```ini
+[ansible_control]
+control ansible_host=CONTROL_PUBLIC_IP
+
+[web_server]
+web ansible_host=WEB_PRIVATE_IP
+
+[db_server]
+db ansible_host=DB_PRIVATE_IP
+
+[all:vars]
+ansible_user=ubuntu
+```
+
+The Control host uses its public IP for workstation access. The Web and DB hosts use private IPs because they are managed from within the VPC. Do not attempt to connect to the private DB IP directly from the workstation.
+
+## 3. Prepare application configuration and secrets
+
+The tracked `ansible/vars/project-vars.yaml` is an **example configuration**. It must not contain a real password. Example:
+
+```yaml
+---
+region: eu-north-1
+
+# Application
+linux_user: java-app
+app_dir: "/home/{{ linux_user }}/app"
+app_version: "1.0-SNAPSHOT"
+jar_name: "java-app-{{ app_version }}.jar"
+local_jar: "{{ playbook_dir }}/files/{{ jar_name }}"
+
+# Database
+db_name: java_app_db
+db_user: java_app_user
+db_port: 3306
+```
+
+For a real deployment, create an **encrypted** file containing `db_password`:
+
+```bash
+ansible-vault create ansible/vars/secrets.yaml
+```
+
+Enter a strong Vault password when prompted. In the editor, enter:
+
+```yaml
+---
+db_password: "REPLACE_WITH_A_STRONG_REAL_PASSWORD"
+```
+
+Save and exit. The text above is a template: use a real password **only inside the encrypted Vault file**. Do not commit the Vault password. In this project, `ansible/vars/secrets.yaml` is excluded from Git as a local secret file.
+
+Update the `vars_files` section in **both plays** of `ansible/configure-app-servers.yaml`:
+
+```yaml
+vars_files:
+  - vars/project-vars.yaml
+  - vars/secrets.yaml
+```
+
+This is a required playbook change before using Vault. The encrypted `secrets.yaml` must also be present on the Control EC2 when that machine runs the configuration playbook. The existing `configure-ansible-server.yaml` copies the Ansible project directory to `/home/ubuntu/ansible-project/`; verify the encrypted file is included and has appropriately restricted permissions. Do **not** copy the Vault password file to EC2.
+
+Useful Vault commands (from repository root):
+
+```bash
+ansible-vault edit ansible/vars/secrets.yaml
+ansible-vault rekey ansible/vars/secrets.yaml
+```
+
+**Security limitation:** Ansible Vault encrypts the secrets file at rest. The current `configure-app-servers.yaml` writes the database password into a systemd service unit, which is not a secure secret store. Before using this outside a learning environment, replace that approach with a root-protected environment file (`0600`) or a secrets manager. `no_log: true` alone does not protect the on-disk unit file. If a real password was previously committed, rotate it; changing the current file does not erase Git history.
+
+## 4. Configure the Ansible Control Server
+
+From the **developer workstation**, in the repository root, verify the syntax:
+
+```bash
+ansible-playbook --syntax-check \
+  -i ansible/inventory-terraform.ini \
+  ansible/configure-ansible-server.yaml
+```
+
+Then install Ansible, supporting tools, Galaxy dependencies, and copy the Ansible project to the Control EC2:
+
+```bash
+ansible-playbook \
+  -i ansible/inventory-terraform.ini \
+  --private-key ~/.ssh/ansible-jenkins.pem \
+  ansible/configure-ansible-server.yaml
+```
+
+The playbook should copy `ansible/files/java-app-1.0-SNAPSHOT.jar` and the configured inventory as well. Confirm the copy completed before proceeding.
+
+## 5. Configure Web and DB from the Control Server
+
+Connect from your workstation to the **trusted** Control EC2 with SSH agent forwarding:
+
+```bash
+ssh -A -i ~/.ssh/ansible-jenkins.pem ubuntu@<CONTROL_PUBLIC_IP>
+```
+
+Agent forwarding permits the remote Control EC2 to use your forwarded SSH agent while the session is active. Only use `-A` with a server you trust; do not copy your private SSH key to EC2.
+
+On the **Control EC2**:
+
+```bash
+cd /home/ubuntu/ansible-project
+ansible --version
+ansible-galaxy role list
+ansible-galaxy collection list
+ansible -i inventory-terraform.ini all -m ping
+```
+
+The `geerlingguy.mysql` role and `ansible.mysql` collection should be installed by the Control configuration playbook using `requirements.yaml`. Check that the role and collection are available before running the next command.
+
+Configure the DB and Web instances from **Control EC2**:
+
+```bash
+ansible-playbook \
+  -i inventory-terraform.ini \
+  configure-app-servers.yaml \
+  --ask-vault-pass
+```
+
+The playbook is intended to install MySQL on the private DB server, create the application database/user, create a dedicated Linux user on Web, install Java 21, copy the JAR, and start a systemd service.
+
+> **Before execution:** Verify the MySQL role is configured to listen on the DB private network interface (for example, using the role's supported bind-address variable), that the application uses the DB host's **private IP** rather than the inventory alias `db`, and that the MySQL authentication settings match the installed MySQL version. The current playbooks have passed syntax checks, not full runtime validation.
+
+> The existing `run-app-playbooks.yaml` wrapper does not forward a Vault password prompt to its nested `ansible-playbook` command. When using Vault, run `configure-app-servers.yaml` interactively on Control as shown above, or update the wrapper explicitly.
+
+## 6. Verify the application
+
+From your **developer workstation** (whose public IPv4 is permitted by the Web security group):
 
 ```bash
 curl -i http://<WEB_PUBLIC_IP>:8080/
 ```
 
-You can also inspect the service from the Web Server itself:
+Open the same address in your browser:
+
+```text
+http://<WEB_PUBLIC_IP>:8080
+```
+
+For troubleshooting, SSH from Control EC2 to Web using its **private IP**, then inspect the service:
 
 ```bash
 sudo systemctl status java-app
 sudo journalctl -u java-app -n 100 --no-pager
+sudo ss -lntp
 curl -i http://localhost:8080/
 ```
 
-The web service is installed as `/etc/systemd/system/java-app.service`, enabled at boot, and configured to restart automatically. The service receives database connection details through environment variables.
+If the application cannot connect to MySQL, check the DB private IP, the MySQL bind address, the MySQL service status, the DB user's permissions, and the security group rule allowing TCP/3306 **from Web**.
 
-## Cleanup and teardown
+## 7. Destroy AWS resources after the exercise
 
-### Terminate project EC2 instances only
-
-```bash
-ansible-playbook -i inventory cleanup.yaml
-```
-
-`cleanup.yaml` selects EC2 instances tagged `Project=ansible-exercise-6`. This includes the control node for **new deployments** using the updated `provision-ansible-server.yaml`; older control instances may not have the tag. This playbook does **not** delete VPC networking.
-
-### Destroy the EC2 and network infrastructure
+From the **developer workstation**, in the repository root:
 
 ```bash
-ansible-playbook -i inventory destroy.yaml
+cd terraform
+terraform plan -destroy -var="my_ip=<YOUR_PUBLIC_IPV4>/32"
+terraform destroy -var="my_ip=<YOUR_PUBLIC_IPV4>/32"
 ```
 
-`destroy.yaml` discovers and terminates the named Web, DB and Control EC2 instances (filtered by project tag), then attempts to delete the NAT Gateway, release the associated tagged Elastic IP, delete DB/Web/Control security groups, remove both subnets, delete the two custom route tables, remove the Internet Gateway and delete the VPC. It also checks that no more than one VPC matches the project name.
+Review the destroy plan and confirm only the intended exercise resources will be deleted. Do **not** use the old Ansible `destroy.yaml` to remove Terraform-managed resources. Verify that EC2 instances, the NAT Gateway, Elastic IP, and other billable resources have actually been removed.
 
-**Important limitations:**
+Terraform state may contain sensitive values. Keep state files out of Git and store them securely; `.gitignore` alone does not protect a remote state backend or files previously committed.
 
-- Run teardown from your **workstation**, not from the control node that will be terminated.
-- The main VPC route table is AWS-managed as part of VPC deletion; the playbook explicitly targets the two named custom route tables.
-- Resource deletion can fail because of AWS dependencies, timing or resources created outside these playbooks. Inspect the final play recap and AWS console rather than assuming a completely empty account.
-- These actions are destructive and may incur AWS charges until resources are actually removed.
+## Git hygiene
 
-## Security considerations
+- Commit Terraform source files and `terraform/.terraform.lock.hcl`.
+- Do not commit `.terraform/`, `*.tfstate`, `*.tfvars`, private SSH keys, Vault passwords, or plaintext credentials.
+- Keep `ansible/vars/project-vars.yaml` tracked as a **non-secret example**.
+- Keep the encrypted `ansible/vars/secrets.yaml` local under the current `.gitignore` policy.
+- Do not run `git add .` until you have checked the changed files for secrets.
 
-- The SSH security group and web application ingress are limited to the developer's detected public IPv4 address, rather than the entire internet.
-- The database server has no public IP and allows MySQL traffic only from the Web Server security group.
-- The control server uses an IAM instance profile backed by a project-specific policy template.
-- **Do not commit real credentials.** `vars/project-vars.yaml` currently contains a plaintext database password value. Replace it with Ansible Vault, AWS Secrets Manager or another appropriate secret-management approach before using this outside a learning environment.
-- `run-app-playbooks.yaml` copies the developer's private SSH key to the control server. This is a deliberate exercise implementation, but it increases key exposure; use tighter key handling or an alternative access model for production.
-- `configure-app-servers.yaml` writes database credentials into a systemd unit. Prefer a protected environment file or secret retrieval at runtime in production.
-- Review the AWS account, region, tags and resource identifiers before running `destroy.yaml`.
-
-## Troubleshooting
-
-| Symptom | What to check |
-|---|---|
-| `provided hosts list is empty` warning | The local inventory initially contains no concrete hosts; the control server is added dynamically during deployment. |
-| SSH timeout or banner exchange error | Instance status checks, security group source IPv4, SSH service readiness, key pair and username (`ubuntu`). An open TCP port alone does not guarantee a successful SSH handshake. |
-| Application does not respond on port 8080 | `systemctl status java-app`, `journalctl`, `ss -lntp`, the Web Server public IP and developer-IP security group rule. |
-| Control node cannot `curl` Web Server on port 8080 | The Web Server ingress rule permits the developer's public IP, not the control server's security group. |
-| Database connection fails | Private IP discovery, DB security group TCP/3306 rule, MySQL service and application database variables. |
-| Teardown fails with dependency errors | Wait for EC2/NAT deletion and inspect remaining network interfaces, security group references, subnet associations and route tables. |
-| AWS authentication or permission error | AWS CLI identity, region, IAM policy, SDK installation and credentials on the machine running the task. |
-
-## What this exercise demonstrates
-
-- AWS infrastructure provisioning with Ansible instead of manual console configuration.
-- A public/private VPC design with NAT-based outbound access for private workloads.
-- Project-scoped IAM permissions and EC2 instance profiles.
-- Multi-stage orchestration across a developer workstation, Ansible control node and managed EC2 instances.
-- Reusable Ansible roles, shared variables, dynamic inventory and systemd service management.
-- Separate workflows for application build, deployment, EC2 cleanup and broader infrastructure teardown.
-
----
-
-**Project type:** Educational DevOps / Ansible exercise. Not production-hardened; review credentials, access controls, AMI selection, dependency versions and teardown safeguards before reuse.

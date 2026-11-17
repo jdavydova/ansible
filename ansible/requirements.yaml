@@ -1,0 +1,6 @@
+---
+roles:
+  - name: geerlingguy.mysql
+
+collections:
+  - name: ansible.mysql

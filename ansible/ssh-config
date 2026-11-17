@@ -1,0 +1,3 @@
+Host *
+    UserKnownHostsFile ~/.ssh/known_hosts_exercise6
+    StrictHostKeyChecking accept-new

@@ -43,12 +43,9 @@
     }
 </style>
 <script>
-  // HOST must be the server IP or DNS name when app running on a server
-  // and localhost when running locally
-  const HOST = "my-java-app.com";
-  
+
   (async function init() {
-    const response = await fetch(`http://${HOST}:80/get-data`);
+    const response = await fetch('/get-data');
     console.log("response", response);
     const data = await response.json();
     console.log("stringified data: " + JSON.stringify(data));
@@ -116,7 +113,7 @@
       });
     });
 
-    const response = await fetch(`http://${HOST}:80/update-roles`, {
+    const response = await fetch('/update-roles',  {
       method: "POST",
       headers: {
         'Accept': 'application/json',

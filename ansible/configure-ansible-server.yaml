@@ -14,20 +14,6 @@
         state: present
         update_cache: true
 
-    - name: Install AWS python libraries
-      ansible.builtin.apt:
-        name:
-          - python3-boto3
-          - python3-botocore
-        state: present
-        update_cache: true
-
-    - name: Install amazon.aws collection
-      become: false
-      ansible.builtin.command:
-        cmd: ansible-galaxy collection install amazon.aws
-      changed_when: false
-
     - name: Create Ansible project directory
       ansible.builtin.file:
         path: /home/ubuntu/ansible-project
@@ -43,3 +29,16 @@
         owner: ubuntu
         group: ubuntu
         mode: preserve
+        decrypt: false
+
+    - name: Install Ansible Galaxy roles
+      ansible.builtin.command:
+        cmd: ansible-galaxy role install -r requirements.yaml
+        chdir: /home/ubuntu/ansible-project
+      become_user: ubuntu
+
+    - name: Install Ansible Galaxy collections
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection install -r requirements.yaml
+        chdir: /home/ubuntu/ansible-project
+      become_user: ubuntu
