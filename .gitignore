@@ -21,3 +21,4 @@ ansible/inventory-terraform.ini
 
 ansible/vars/secrets.yaml
 ansible/vars/vault-password.txt
+/ansible/inventory-terraform.ini

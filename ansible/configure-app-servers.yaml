@@ -36,6 +36,20 @@
         login_unix_socket: /var/run/mysqld/mysqld.sock
       no_log: true
 
+    - name: Create team_members table
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - "{{ db_name }}"
+          - -e
+          - |
+            CREATE TABLE IF NOT EXISTS team_members (
+              member_name VARCHAR(255) PRIMARY KEY,
+              member_role VARCHAR(255)
+            );
+      become: true
+      changed_when: false
+
 - name: Configure Web server
   hosts: web_server
   become: true
